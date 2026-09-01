@@ -13,6 +13,7 @@ import { createApiServer, resolveToken, isLoopbackHost } from "../src/api.ts";
 import { ServiceError, assertArgs, chatSend, fetchEndpoint, ledgerList, ledgerSnapshot, ledgerUpsert, getEvidence, getReport, knowledgeRecall, listEndpoints, listRuns, redact, researchEnv, researchStatus, safePath, startResearch, type ServiceContext, displayUrl } from "../src/service.ts";
 import { writeJson } from "../src/fsutil.ts";
 import { detectPython } from "../src/init.ts";
+import { directoryLink, fileLinkOrSkip } from "./platform.ts";
 
 
 import "../src/finance/register.ts";   // 测试文件也是入口:插件要先注册
@@ -116,20 +117,20 @@ test("service:端点列表 / 取数(子进程 + 落 .local/mcp,只带 auth_env,s
   assert.ok(!red.includes("abc") && !red.includes("def") && !red.includes("sig=1") && !red.includes("sk-1") && red.includes("***"), red);
 });
 
-test("service:符号链接穿越被拒(运行目录 / 产物文件 / session 目录)", async () => {
+test("service:符号链接穿越被拒(运行目录 / 产物文件 / session 目录)", async (t) => {
   const ctx = fakeCtx();
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-outside-"));
   fs.writeFileSync(path.join(outside, "report.md"), "OUTSIDE");
-  fs.symlinkSync(outside, path.join(ctx.dataRoot, "runs", "r2"));            // 运行目录是链接
+  directoryLink(outside, path.join(ctx.dataRoot, "runs", "r2"));            // 运行目录是链接
   assert.throws(() => getReport(ctx, "r2"), (e: unknown) => e instanceof ServiceError && e.code === "path_symlink");
   assert.throws(() => researchStatus(ctx, "r2"), (e: unknown) => e instanceof ServiceError && e.code === "path_symlink");
-  fs.symlinkSync(path.join(outside, "report.md"), path.join(ctx.dataRoot, "runs", "r1", "report_appendix.md"));  // 产物文件是链接
-  assert.throws(() => getReport(ctx, "r1"), (e: unknown) => e instanceof ServiceError && e.code === "path_symlink");
   fs.mkdirSync(path.join(ctx.dataRoot, "mcp"), { recursive: true });
-  fs.symlinkSync(outside, path.join(ctx.dataRoot, "mcp", "evil"));             // session 目录是链接
+  directoryLink(outside, path.join(ctx.dataRoot, "mcp", "evil"));             // session 目录是链接
   await assert.rejects(() => fetchEndpoint(ctx, { endpoint: "em_reports", symbol: "300308", session: "evil" }), (e: unknown) => e instanceof ServiceError && e.code === "path_symlink");
   assert.throws(() => safePath(ctx, "..", "x"), (e: unknown) => e instanceof ServiceError && e.code === "path_escape");
   assert.equal(safePath(ctx, "runs", "r1"), path.resolve(ctx.dataRoot, "runs", "r1"));
+  if (!fileLinkOrSkip(t, path.join(outside, "report.md"), path.join(ctx.dataRoot, "runs", "r1", "report_appendix.md"))) return;
+  assert.throws(() => getReport(ctx, "r1"), (e: unknown) => e instanceof ServiceError && e.code === "path_symlink");
   // 最终文件是链接:日志 / manifest / api.token
   fs.mkdirSync(path.join(ctx.dataRoot, "logs"), { recursive: true });
   fs.writeFileSync(path.join(outside, "victim.log"), "");
@@ -287,7 +288,7 @@ test("HTTP API:token 必需 / 非本机 Origin 403 / 跨站 403 / 非 JSON POST 
   } finally { srv2.close(); }
   const tk = resolveToken(ctx, {});
   assert.equal(tk.source, "generated"); assert.ok(tk.token.length >= 32 && fs.existsSync(tk.file));
-  assert.equal((fs.statSync(tk.file).mode & 0o777), 0o600);
+  if (process.platform !== "win32") assert.equal((fs.statSync(tk.file).mode & 0o777), 0o600);
   assert.equal(resolveToken(ctx, {}).source, "file");
   assert.equal(resolveToken(ctx, { VRA_API_TOKEN: "e".repeat(20) }).source, "env");
 });
@@ -315,7 +316,7 @@ test("MCP:stdio 起真实 server(SDK Client),tools/list 含 8 个工具,list_end
   } finally { await client.close(); }
 });
 
-test("台账全量读取也要过 safePath —— 防线只在次要入口生效等于没有防线", async () => {
+test("台账全量读取也要过 safePath —— 防线只在次要入口生效等于没有防线", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "vra-ledgersvc-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-outside-"));
   const ctx = { repoRoot: root, dataRoot: root, python: "python3", node: process.execPath, providerEnvKey: null } as ServiceContext;
@@ -325,7 +326,7 @@ test("台账全量读取也要过 safePath —— 防线只在次要入口生效
   const f = path.join(root, "ledger", "position.json");
   fs.writeFileSync(path.join(outside, "evil.json"), JSON.stringify({ schema_version: 1, kind: "position", records: [] }));
   fs.rmSync(f);
-  fs.symlinkSync(path.join(outside, "evil.json"), f); // 数据区里被塞了指向区外的链接
+  if (!fileLinkOrSkip(t, path.join(outside, "evil.json"), f)) return; // 数据区里被塞了指向区外的链接
 
   // 单查会被挡 —— 这条原本就过
   assert.throws(() => ledgerList(ctx, "position"), (e: unknown) => e instanceof ServiceError && e.code === "path_symlink");

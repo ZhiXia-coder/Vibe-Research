@@ -326,6 +326,10 @@ export const backend = {
     call<{ run_id: string; log: string; pid?: number }>("/research", { method: "POST", body: JSON.stringify(body) }),
 
   researchStatus: (id: string) => call<ResearchStatus>(`/runs/${encodeURIComponent(id)}/status`),
+  runMetrics: (id: string) => call<RunMetrics>(`/runs/${encodeURIComponent(id)}/metrics`),
+  runTrace: (id: string, limit = 300) => call<RunTrace>(`/runs/${encodeURIComponent(id)}/trace?limit=${limit}`),
+  observability: (limit = 50) => call<ObservabilityOverview>(`/observability/overview?limit=${limit}`),
+  missions: (limit = 100) => call<MissionRecord[]>(`/missions?limit=${limit}`),
 
   /**
    * 「昨天以来变了什么」：对齐同一标的最近两次研究。
@@ -478,6 +482,73 @@ export interface ResearchStatus {
   last_events?: unknown[];
   report?: boolean;
   viewer?: boolean;
+}
+
+/** Agent 运行控制台使用的安全摘要；不包含 prompt、模型正文、完整命令输出或本机路径。 */
+export interface MissionNode {
+  id: string;
+  depends_on: string[];
+  status: string;
+  attempts: number;
+  validator_ok: boolean | null;
+  errors: string[];
+}
+
+export interface RunMetrics {
+  run_id: string;
+  exists: boolean;
+  status: string | null;
+  symbol: string | null;
+  market: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  model: { provider: string | null; model: string | null };
+  mission: MissionNode[];
+  steps: { total: number; completed: number; failed: number; retried: number };
+  tools: { total: number; succeeded: number; failed: number; other: number; commands: number; mcp_calls: number };
+  recovery: { retries: number; recovered_steps: number; gate_rewrites: number; failure_events: number };
+  usage: Record<string, number>;
+  cost: { amount: number | null; currency: "USD"; status: "not_configured" };
+  quality: {
+    verdict: "passed" | "failed" | "unknown";
+    gate_ok: boolean | null;
+    validator_pass_rate: number | null;
+    evidence_count: number | null;
+    calculation_count: number | null;
+  };
+}
+
+export interface TraceEvent {
+  seq: number;
+  ts: string | null;
+  stage: string;
+  type: string;
+  attempt: number | null;
+  status: string | null;
+  duration_ms: number | null;
+  detail: string | null;
+}
+
+export interface RunTrace { run_id: string; total: number; items: TraceEvent[] }
+export interface ObservabilityOverview {
+  runs: RunMetrics[];
+  totals: { runs: number; complete: number; failed: number; tools: number; tool_failures: number; retries: number };
+}
+
+export interface MissionRecord {
+  run_id: string;
+  symbol: string;
+  market: string;
+  status: string;
+  endpoint_scope: string;
+  knowledge: string;
+  pid: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  error: string | null;
 }
 
 /** 两次研究之间的一条差异。`kind` 分变了 / 新增 / 消失 —— 三者要分开显示，别糊成"有变化" */

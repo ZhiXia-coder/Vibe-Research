@@ -12,6 +12,7 @@ import {
   findForeignProjectRootMarkers, installProjectRootMarkers, preflightInstructions,
   resolveInstructionsRoot, syncInstructionAssets,
 } from "../src/instructions_root.ts";
+import { directoryLink, fileLinkOrSkip } from "./platform.ts";
 
 /**
  * 这些校验拦的全是**静默失效**:引擎不报错,只是宪法 / 技能不在提示词里,而报告照样产出。
@@ -173,7 +174,7 @@ test("config 块必须真的生效:落进上一张表 / 值被改 / 重复 / 缺
   assert.match(String(verifyProjectRootBlock(good + "\n\n" + good + "\n")), /出现多次/);
 });
 
-test("同步:拒绝源与目标互相包含;目标端的符号链接与非普通文件一律清掉", () => {
+test("同步:拒绝源与目标互相包含;目标端的符号链接与非普通文件一律清掉", (t) => {
   const app = product();
   assert.throws(() => syncInstructionAssets(app, path.join(app, "sub")), /不得互相包含/);
   assert.throws(() => syncInstructionAssets(path.join(app, "sub"), app), /不得互相包含/);
@@ -183,11 +184,11 @@ test("同步:拒绝源与目标互相包含;目标端的符号链接与非普通
   // 目标端的宪法是一条指向仓库外的符号链接,而且内容"恰好相同" —— 只比内容会把它当成已同步留下来,
   // 之后链接目标被改,引擎加载的就是外部内容
   fs.writeFileSync(path.join(outside, "evil.md"), fs.readFileSync(path.join(app, CONSTITUTION_FILENAME)));
-  fs.symlinkSync(path.join(outside, "evil.md"), path.join(data, CONSTITUTION_FILENAME));
+  if (!fileLinkOrSkip(t, path.join(outside, "evil.md"), path.join(data, CONSTITUTION_FILENAME))) return;
   // 技能目录整个是指向外部的链接:不处理的话下面的复制会顺着它写到外面去
   fs.mkdirSync(path.join(outside, "skills"), { recursive: true });
   fs.mkdirSync(path.join(data, ".agents"), { recursive: true });
-  fs.symlinkSync(path.join(outside, "skills"), path.join(data, SKILLS_REL));
+  directoryLink(path.join(outside, "skills"), path.join(data, SKILLS_REL));
   syncInstructionAssets(app, data);
   // 断言的是**安全性质**,不是某个实现细节:目标端不再是链接、外部文件没被写、改外部也影响不到我们
   for (const rel of [CONSTITUTION_FILENAME, SKILLS_REL]) {
@@ -232,13 +233,13 @@ test("同步:路径**中间段**是符号链接必须抛(否则会删到数据�
   // 用户的真实资料被链接进来:.agents -> outside;不拦的话清理逻辑会顺着链接删掉 outside 里的文件
   fs.mkdirSync(path.join(outside, "skills"), { recursive: true });
   fs.writeFileSync(path.join(outside, "skills", "重要资料.md"), "# 不能被删\n");
-  fs.symlinkSync(outside, path.join(data, ".agents"));
+  directoryLink(outside, path.join(data, ".agents"));
   assert.throws(() => syncInstructionAssets(app, data), /中间段是符号链接/);
   assert.ok(fs.existsSync(path.join(outside, "skills", "重要资料.md")), "外部文件一个都不许动");
   // 源端同理:不许从产品根之外取资产
   const app2 = tmp("vra-ir-app2-");
   fs.writeFileSync(path.join(app2, CONSTITUTION_FILENAME), "# c\n");
-  fs.symlinkSync(outside, path.join(app2, ".agents"));
+  directoryLink(outside, path.join(app2, ".agents"));
   assert.throws(() => syncInstructionAssets(app2, tmp("vra-ir-dst2-")), /中间段是符号链接/);
 });
 
@@ -286,7 +287,7 @@ test("根路径不许含空白:带空格的数据根会让执行层拒掉所有�
   const app = product();
   const spaced = path.join(tmp("vra-ir-sp-"), "Application Support", "VibeResearch");
   fs.mkdirSync(spaced, { recursive: true });
-  assert.throws(() => makeConfig({ symbol: "1", repoRoot: app, dataRoot: spaced, python: "false" }), /不能含空格/);
+  assert.throws(() => makeConfig({ symbol: "1", repoRoot: app, dataRoot: spaced, python: "false", executionMode: "shell_hooks" }), /不能含空格/);
   // 根目录本身也不行:dataRoot="/" 时钩子边界会拼成 "//",每次调用都判不一致并放行(全审 r1-P3-7)
   assert.throws(() => makeConfig({ symbol: "1", repoRoot: app, dataRoot: "/", python: "false" }), /不能是文件系统根目录/);
   // 无空格照常

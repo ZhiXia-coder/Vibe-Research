@@ -28,6 +28,7 @@ import { ReportLibraryError, addReport, listReports as listStoredReports, remove
 import { GuidedToolError, guidedToolTurn as guidedToolTurnCore, type GuidedToolReply } from "./guided_tool.ts";
 import { LocalAgentError, probeClaude, probeCodex, startCodexLogin, type LocalAgentStatus } from "./local_agent_runtime.ts";
 import { sdkCodexVersion } from "./runner.ts";
+import { MissionCapacityError, MissionExistsError, listMissions as listStoredMissions, missionById as storedMissionById, missionConcurrency, missionProcessExited, missionSpawnFailed, missionSpawned, reserveMission, type MissionRecord } from "./mission_store.ts";
 
 
 export interface ServiceContext { repoRoot: string; dataRoot: string; python: string; node: string; providerEnvKey: string | null }
@@ -370,7 +371,7 @@ function runFetchProcess(
 }
 
 // ---------------- 研究运行 ----------------
-export interface StartResult { run_id: string; run_dir: string; log: string; pid: number | undefined }
+export interface StartResult { run_id: string; run_dir: string; log: string; pid: number | undefined; mission_status: "running" }
 
 export function startResearch(ctx: ServiceContext, req: { symbol: string; company_name?: string; market?: string; stages?: string[]; endpoints?: "full" | "core"; knowledge?: "on" | "off"; run_id?: string; overwrite?: boolean; no_agent?: boolean }): StartResult {
   const symbol = assertSymbol(req.symbol, "cn6");
@@ -407,12 +408,34 @@ export function startResearch(ctx: ServiceContext, req: { symbol: string; compan
   if (stages.length) argv.push("--stages", stages.join(","));
   if (req.overwrite === true) argv.push("--overwrite");
   if (req.no_agent === true) argv.push("--no-agent");
-  const out = fs.openSync(log, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW_FLAG, 0o600);
-  const child = spawn(ctx.node, argv, { cwd: ctx.repoRoot, detached: true, windowsHide: true, stdio: ["ignore", out, out], env: researchEnv(ctx) });
-  child.unref();
-  fs.closeSync(out);
-  return { run_id: runId, run_dir: rel(ctx, runDir), log: rel(ctx, log), pid: child.pid };
+  try {
+    reserveMission(ctx.dataRoot, { run_id: runId, symbol, market, endpoint_scope: scope, knowledge: kn, overwrite: req.overwrite === true }, missionConcurrency());
+  } catch (error) {
+    if (error instanceof MissionCapacityError) throw new ServiceError("research_capacity", `研究并发已满(${error.active}/${error.limit})，请等待已有运行结束`);
+    if (error instanceof MissionExistsError) throw new ServiceError("mission_exists", `run-id ${runId} 已存在；换一个 run-id，或在非运行状态下显式 overwrite`);
+    throw error;
+  }
+  let out: number | null = null;
+  try {
+    out = fs.openSync(log, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW_FLAG, 0o600);
+    const child = spawn(ctx.node, argv, { cwd: ctx.repoRoot, detached: true, windowsHide: true, stdio: ["ignore", out, out], env: researchEnv(ctx) });
+    let spawnFailed = false;
+    missionSpawned(ctx.dataRoot, runId, child.pid ?? null);
+    child.once("error", (error) => { spawnFailed = true; missionSpawnFailed(ctx.dataRoot, runId, redact(error.message, 500)); });
+    child.once("close", (code) => { if (!spawnFailed) missionProcessExited(ctx.dataRoot, runId, code); });
+    child.unref();
+    fs.closeSync(out); out = null;
+    return { run_id: runId, run_dir: rel(ctx, runDir), log: rel(ctx, log), pid: child.pid, mission_status: "running" };
+  } catch (error) {
+    if (out !== null) { try { fs.closeSync(out); } catch { /* ignore */ } }
+    const message = redact(error instanceof Error ? error.message : String(error), 500);
+    missionSpawnFailed(ctx.dataRoot, runId, message);
+    throw new ServiceError("spawn_failed", `研究进程启动失败:${message}`);
+  }
 }
+
+export function missions(ctx: ServiceContext, limit?: number): MissionRecord[] { return listStoredMissions(ctx.dataRoot, limit); }
+export function missionStatus(ctx: ServiceContext, runId: string): MissionRecord | null { return storedMissionById(ctx.dataRoot, assertRunId(runId)); }
 
 export interface RunStatus { run_id: string; exists: boolean; status: string | null; exit_code: number | null; stages: { stage: string; status: string; attempts: number }[]; evidence_count: number | null; calculation_count: number | null; finished_at: string | null; last_events: Record<string, unknown>[]; report: boolean; viewer: string | null }
 

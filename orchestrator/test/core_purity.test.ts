@@ -249,5 +249,5 @@ test("Core 不许出现垂类的阶段名 / 市场代码字面量,也不许 impo
 
 /** 去掉行注释与块注释(粗略但够用:只用来避免把历史说明当耦合) */
 function stripComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+  return text.replace(/\/\*[\s\S]*?\*\//g, "").split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 }

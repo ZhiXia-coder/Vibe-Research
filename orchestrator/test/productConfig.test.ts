@@ -51,9 +51,10 @@ test("产品配置:产品文件 ← 用户文件 ← 环境变量 逐层覆盖;s
   fs.writeFileSync(path.join(repo, "data", "config.json"), JSON.stringify({ paths: { constitution: "docs/MY.md" } }));
   assert.throws(() => loadProductConfig(repo, { env: {} }), /必须是 "AGENTS.md"/);
   fs.writeFileSync(path.join(repo, "data", "config.json"), "{}");
-  pc = loadProductConfig(repo, { env: { VRA_CODEX_PATH: "bin/codex-engine", VRA_CODEX_HOME: "/abs/home" } });
+  const absoluteHome = path.join(path.parse(repo).root, "abs", "home");
+  pc = loadProductConfig(repo, { env: { VRA_CODEX_PATH: "bin/codex-engine", VRA_CODEX_HOME: absoluteHome } });
   assert.equal(pc.resolved.codexPath, path.join(repo, "bin", "codex-engine"));
-  assert.equal(pc.resolved.codexHome, "/abs/home");
+  assert.equal(pc.resolved.codexHome, absoluteHome);
   assert.ok(pc.sources.includes("env"));
   fs.writeFileSync(path.join(repo, "data", "config.json"), JSON.stringify({ provider: { api_key: "sk-secret" } })); // 密钥不允许进配置文件(未知字段)
   assert.throws(() => loadProductConfig(repo, { env: {} }), /schema/);
@@ -73,9 +74,11 @@ test("configFromArgs:产品配置进入 RunConfig;CLI 覆盖配置文件", () =>
   assert.equal(cfg.gateRetries, 1);
   assert.equal(cfg.runDir, path.join(repo, ".local", "runs", cfg.runId));
   assert.ok(sources.some((s) => s.endsWith(PRODUCT_CONFIG_FILE)));
-  ({ cfg } = configFromArgs({ symbol: "300308", "repo-root": repo, "codex-path": "/x/codex", "codex-home": "/x/home", "turn-timeout-min": "3" }, {}));
-  assert.equal(cfg.codexPath, "/x/codex");
-  assert.equal(cfg.codexHome, "/x/home");
+  const cliCodexPath = path.join(path.parse(repo).root, "x", "codex");
+  const cliCodexHome = path.join(path.parse(repo).root, "x", "home");
+  ({ cfg } = configFromArgs({ symbol: "300308", "repo-root": repo, "codex-path": cliCodexPath, "codex-home": cliCodexHome, "turn-timeout-min": "3" }, {}));
+  assert.equal(cfg.codexPath, cliCodexPath);
+  assert.equal(cfg.codexHome, cliCodexHome);
   assert.equal(cfg.turnTimeoutMs, 3 * 60_000);
 });
 
@@ -100,9 +103,10 @@ test("VRA_DATA_ROOT 改数据根 —— 用户配置 / 产物 / 引擎 home 必�
 test("显式配过的引擎 home 不被数据根带走", () => {
   const repo = tmpRepo();
   const data = tmpRepo();
-  const pc = loadProductConfig(repo, { env: { VRA_DATA_ROOT: data, VRA_CODEX_HOME: "/tmp/my-engine-home" } });
+  const engineHome = path.join(path.parse(repo).root, "tmp", "my-engine-home");
+  const pc = loadProductConfig(repo, { env: { VRA_DATA_ROOT: data, VRA_CODEX_HOME: engineHome } });
   assert.equal(pc.resolved.dataRoot, data);
-  assert.equal(pc.resolved.codexHome, "/tmp/my-engine-home", "显式指定的 home 被数据根覆盖了");
+  assert.equal(pc.resolved.codexHome, engineHome, "显式指定的 home 被数据根覆盖了");
 });
 
 test("调用方显式 override 优先于 VRA_DATA_ROOT", () => {

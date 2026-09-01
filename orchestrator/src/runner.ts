@@ -67,6 +67,9 @@ function tomlValue(value: unknown): string {
 export function configuredMcpServerNames(cfg: RunConfig, engineEnv: NodeJS.ProcessEnv = codexEnvFor(cfg)): string[] {
   const codexBin = cfg.codexPath ?? sdkCodexVersion().binary;
   if (!codexBin) throw new Error("无法核验 MCP 隔离配置:找不到官方 Codex 引擎");
+  // Codex 会在启动早期解析 CODEX_HOME；Windows 下目录不存在时会直接退出，
+  // 还没机会由后续初始化流程创建。预检本身只需要一个空目录，先幂等补齐。
+  fs.mkdirSync(cfg.codexHome, { recursive: true });
   // 配置预检也会在建立 run 目录前被调用（如研究入口与单测）。spawn 的 cwd
   // 不存在时 Node 会把它报成近似“二进制 ENOENT”，因此退到已存在的数据根；
   // 对话入口会先建立会话目录，仍使用精确 cwd。

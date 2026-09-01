@@ -5,6 +5,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { ProgressReporter, clip, humanElapsed } from "../src/progress.ts";
+import { directoryLink, fileLinkOrSkip } from "./platform.ts";
 
 
 import "../src/finance/register.ts";   // 测试文件也是入口:插件要先注册
@@ -183,11 +184,11 @@ test("带空格的绝对路径要整段抹掉,但正常句子不被过度吞", (
   assert.match(clip("硅光/光互连 与 CPO/LPO 两条路线", 200), /硅光\/光互连 与 CPO\/LPO 两条路线/);
 });
 
-test("符号链接读不到:stages 里的链接一律拒绝", () => {
+test("符号链接读不到:stages 里的链接一律拒绝", (t) => {
   const d = mkRun({ profile: { summary: "正常" } });
   fs.writeFileSync(path.join(d, "outside.json"), JSON.stringify({ summary: "不该被打出来" }));
   fs.rmSync(path.join(d, "stages", "profile.json"));
-  fs.symlinkSync(path.join(d, "outside.json"), path.join(d, "stages", "profile.json"));
+  if (!fileLinkOrSkip(t, path.join(d, "outside.json"), path.join(d, "stages", "profile.json"))) return;
   const { lines, rep } = harness(d);
   rep.onEvent({ stage: "profile", type: "stage.completed", status: "complete" });
   assert.equal(lines.length, 1);
@@ -217,7 +218,7 @@ test("stages 目录本身是符号链接时也一律拒绝", () => {
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out-"));
   fs.writeFileSync(path.join(outside, "profile.json"), JSON.stringify({ summary: "不该被打出来" }));
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "vra-prog-"));
-  fs.symlinkSync(outside, path.join(d, "stages"));
+  directoryLink(outside, path.join(d, "stages"));
   const { lines, rep } = harness(d);
   rep.onEvent({ stage: "profile", type: "stage.completed", status: "complete" });
   assert.equal(lines.length, 1);

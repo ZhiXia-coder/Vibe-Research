@@ -332,7 +332,7 @@ test("受保护产物认证:agent 改写 events.jsonl / conflicts.json → 阶�
 
 test("Stop 钩子终止标记 → 该 turn 视为失败 → 补跑;补跑成功则阶段 complete", async () => {
   const repo = tmpRepo();
-  const cfg = makeConfig({ symbol: "300308", market: "SZ", repoRoot: repo, runId: "t8", python: "false", maxRetries: 1 });
+  const cfg = makeConfig({ symbol: "300308", market: "SZ", repoRoot: repo, runId: "t8", python: "false", maxRetries: 1, executionMode: "shell_hooks" });
   let first = true;
   const lazyThenGood: Behaviour = (stage, attempt, c) => {
     if (stage === "financials" && first) { // 第一轮"偷懒":不写产物,模拟 Stop 钩子拦够次数后终止本轮
@@ -374,7 +374,7 @@ test("环境隔离:取数脚本环境不含 Codex 凭据 / 配置目录;Codex �
   const ce = codexEnv();
   assert.ok(!("CODEX_API_KEY" in ce) && !("CODEX_HOME" in ce));
   const cfg = makeConfig({ symbol: "1", repoRoot: "/tmp/repo" });
-  assert.equal(codexEnvFor(cfg).CODEX_HOME, "/tmp/repo/.local/codex-home");
+  assert.equal(codexEnvFor(cfg).CODEX_HOME, path.resolve("/tmp/repo/.local/codex-home"));
   delete process.env.CODEX_API_KEY; delete process.env.CODEX_HOME;
 });
 
@@ -440,11 +440,12 @@ test("events 脱敏:已知密钥值与 sk- 形态在落盘前替换;摘要基于
 
 test("真实构造链:CodexRunner 把工具环境策略 / 显式 CODEX_HOME / 引擎路径传给 SDK;api_key 模式下 runner 自己的事件日志会脱敏已知密钥值", () => {
   const repo = tmpRepo();
-  const cfg = makeConfig({ symbol: "300308", repoRoot: repo, runId: "cr1", python: "false", codexPath: "/x/codex-engine", provider: { name: "openai", wire_api: "responses", base_url: null, env_key: "OPENAI_API_KEY", auth: "api_key" } });
+  const fakeEngine = path.join(repo, "x", "codex-engine");
+  const cfg = makeConfig({ symbol: "300308", repoRoot: repo, runId: "cr1", python: "false", codexPath: fakeEngine, executionMode: "shell_hooks", provider: { name: "openai", wire_api: "responses", base_url: null, env_key: "OPENAI_API_KEY", auth: "api_key" } });
   process.env.OPENAI_API_KEY = "verysecretapikey-9876543210";
   try {
     const opts = codexOptionsFor(cfg);
-    assert.equal(opts.codexPathOverride, "/x/codex-engine");
+    assert.equal(opts.codexPathOverride, fakeEngine);
     assert.equal(opts.env?.CODEX_HOME, path.join(repo, ".local", "codex-home"));
     assert.equal(opts.env?.CODEX_API_KEY, "verysecretapikey-9876543210");
     const policy = (opts.config as { shell_environment_policy: { ignore_default_excludes: boolean; exclude: string[] } }).shell_environment_policy;
@@ -573,6 +574,7 @@ test("🔴 runner 真的按 provider 能力决定 schema 走哪条路 —— 只
     makeConfig({
       symbol: "300308", repoRoot: repo, runId: `so-${structured ?? "none"}`, python: "false",
       provider: { name: "p", wire_api: "responses", base_url: "https://x.example/v1", env_key: "P_KEY", auth: "api_key" },
+      executionMode: "shell_hooks",
       providerProfile: {
         id: "p", name: "P", wire_api: "responses", base_url: "https://x.example/v1", env_key: "P_KEY",
         auth_modes: ["api_key"], requires_openai_auth: false, default_model: "m", responses_support: "native",

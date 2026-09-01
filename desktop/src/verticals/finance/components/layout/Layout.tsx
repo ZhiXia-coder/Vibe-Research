@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import {
-  Activity, ChevronDown, ChevronsLeft, ChevronsRight, Cog, Cpu, FileText, FlaskConical, Gauge, Github, Home, LayoutGrid, LineChart, Microscope, Moon, Newspaper, NotebookPen, Radar, Rss, Settings, Sparkles, Star, Sun, Swords, Thermometer, TrendingUp, UserRound, Wallet,
+  Activity, ChevronDown, ChevronsLeft, ChevronsRight, Cog, Cpu, FileText, FlaskConical, Gauge, Github, GitBranch, Home, LayoutGrid, LineChart, Microscope, Moon, Newspaper, NotebookPen, Radar, Rss, Settings, Sparkles, Star, Sun, Swords, Thermometer, TrendingUp, UserRound, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AiPageProvider } from "../../../../core/ai/pageContext";
@@ -25,6 +25,7 @@ const NAV = [
   { to: "/signals", icon: Thermometer, label: "产业信号" },
   { to: "/sectors", icon: LayoutGrid, label: "板块中心" },
   { to: "/research", icon: Microscope, label: "个股研究" },
+  { to: "/agent-ops", icon: GitBranch, label: "Agent 运行" },
   { to: "/debate", icon: Swords, label: "多空辩论" },
   { to: "/backtest", icon: FlaskConical, label: "回测" },
   { to: "/watchlist", icon: Star, label: "自选股" },

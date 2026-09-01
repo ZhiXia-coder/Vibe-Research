@@ -39,6 +39,19 @@ const CODEX_LOGIN_TIMEOUT_MS = 10 * 60 * 1_000;
 const CODEX_LOGIN_FAILURE_TTL_MS = 60 * 1_000;
 const codexLoginJobs = new Map<string, CodexLoginProgress>();
 
+/**
+ * CreateProcess 可以用绝对路径启动 PowerShell，但 PowerShell / npm 启动器自身仍依赖几项
+ * Windows 系统环境。受控调用传最小 env 时只补这些非凭据字段，不把用户 PATH 或密钥带回去。
+ */
+function windowsRuntimeEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (process.platform !== "win32") return { ...base };
+  const out = { ...base };
+  for (const key of ["SystemRoot", "SYSTEMROOT", "WINDIR", "ComSpec", "PATHEXT", "TEMP", "TMP"] as const) {
+    if (out[key] === undefined && process.env[key] !== undefined) out[key] = process.env[key];
+  }
+  return out;
+}
+
 /** Windows 没有 POSIX 进程组；taskkill /T 是对应的整棵进程树终止语义。 */
 function signalProcessTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean }, signal: NodeJS.Signals): void {
   try {
@@ -87,7 +100,7 @@ export function startCodexLogin(
   const progress: CodexLoginProgress = { state: "pending", startedAt: Date.now() };
   codexLoginJobs.set(key, progress);
 
-  const runEnv = { ...env, CODEX_HOME: key };
+  const runEnv = { ...windowsRuntimeEnv(env), CODEX_HOME: key };
   const launch = executableInvocation(bin, ["login"], runEnv);
   const child = spawn(launch.file, launch.args, {
     env: runEnv,
@@ -158,19 +171,21 @@ export async function probeCodex(
     return { provider: "cli-codex", name: "Codex", installed: false, authenticated: false, available: false,
       version: null, status: "not_installed", detail: "产品自带的 Codex 引擎不存在" };
   }
+  const probeEnv = windowsRuntimeEnv(env);
   let version: string | null = null;
   try {
-    const versionCall = executableInvocation(bin, ["--version"], env);
-    const v = await execFileAsync(versionCall.file, versionCall.args, { env, timeout: 5_000, maxBuffer: 64 * 1024 });
+    const versionCall = executableInvocation(bin, ["--version"], probeEnv);
+    const v = await execFileAsync(versionCall.file, versionCall.args, { env: probeEnv, timeout: 5_000, maxBuffer: 64 * 1024 });
     version = oneLine(v.stdout);
   } catch {
     return { provider: "cli-codex", name: "Codex", installed: true, authenticated: false, available: false,
       version: null, status: "probe_failed", detail: "Codex 已安装，但版本检测失败" };
   }
   try {
-    const statusCall = executableInvocation(bin, ["login", "status"], { ...env, CODEX_HOME: codexHome });
+    const statusEnv = { ...probeEnv, CODEX_HOME: codexHome };
+    const statusCall = executableInvocation(bin, ["login", "status"], statusEnv);
     await execFileAsync(statusCall.file, statusCall.args, {
-      env: { ...env, CODEX_HOME: codexHome }, timeout: 5_000, maxBuffer: 64 * 1024,
+      env: statusEnv, timeout: 5_000, maxBuffer: 64 * 1024,
     });
     return { provider: "cli-codex", name: "Codex", installed: true, authenticated: true, available: true,
       version, status: "ready", detail: "产品自带引擎已登录，可使用 ChatGPT 订阅" };
@@ -251,7 +266,10 @@ export function executableInvocation(
     if ([".cmd", ".bat"].includes(ext)) throw new LocalAgentError("agent_start_failed", "Windows CLI 缺少安全的 PowerShell 启动器");
     return { file: bin, args };
   }
-  const windowsRoot = env.SystemRoot ?? env.SYSTEMROOT ?? env.WINDIR;
+  // 测试与受控调用经常传最小环境；Windows 创建 PowerShell 进程仍需要系统目录。
+  // 这里允许从宿主补 SystemRoot，但不会补 PATH 或任何认证变量。
+  const windowsRoot = env.SystemRoot ?? env.SYSTEMROOT ?? env.WINDIR
+    ?? process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR;
   const powershell = windowsRoot
     ? path.win32.join(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
     : "powershell.exe";
@@ -355,7 +373,7 @@ export function claudeArgs(systemPrompt: string, outputSchema?: unknown): string
 }
 
 function subscriptionEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env = { ...base };
+  const env = windowsRuntimeEnv(base);
   // 用户明确选择“Claude 订阅”时，让 Claude Code 自己的 claude.ai 登录态胜出。
   // 否则外壳进程里遗留的 API key / 第三方网关可能静默改掉计费方。
   // `CLAUDE_CODE_OAUTH_TOKEN` 是 `claude setup-token` 生成的官方订阅认证，必须保留；
@@ -431,9 +449,11 @@ export async function runLocalAgent(agent: LocalAgentId, opts: RunLocalAgentOpti
     let hardKillTimer: NodeJS.Timeout | null = null;
     let killFallbackTimer: NodeJS.Timeout | null = null;
 
-    const cleanup = () => {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+    const cleanup = (done: () => void) => {
       opts.signal?.removeEventListener("abort", onAbort);
+      // Windows 偶尔在 child 的 close 事件后短暂保留 cwd 句柄。异步 rm 自带重试，
+      // 避免 EPERM 覆盖真实的 Agent 结果，同时仍在返回调用方前完成清理尝试。
+      fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }, () => done());
     };
     const finish = (fn: () => void) => {
       if (settled) return;
@@ -442,8 +462,7 @@ export async function runLocalAgent(agent: LocalAgentId, opts: RunLocalAgentOpti
       if (hardKillTimer) clearTimeout(hardKillTimer);
       if (killFallbackTimer) clearTimeout(killFallbackTimer);
       activeLocalAgents = Math.max(0, activeLocalAgents - 1);
-      cleanup();
-      fn();
+      cleanup(fn);
     };
     const signalTree = (signal: NodeJS.Signals) => {
       signalProcessTree(child, signal);

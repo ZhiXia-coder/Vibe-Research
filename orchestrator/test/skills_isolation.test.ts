@@ -8,6 +8,7 @@ import { makeConfig } from "../src/config.ts";
 import { installHooks } from "../src/hooks.ts";
 import { runInit } from "../src/init.ts";
 import { loadProductConfig } from "../src/productConfig.ts";
+import { directoryLink, tryFileLink } from "./platform.ts";
 
 import "../src/finance/register.ts";   // 测试文件也是入口:插件要先注册
 import {
@@ -44,14 +45,14 @@ function fixture() {
   fs.writeFileSync(path.join(repo, "AGENTS.md"), "# c\n");
   fs.mkdirSync(path.join(root, "no-skill-md"), { recursive: true });
   fs.writeFileSync(path.join(root, "README.md"), "x");
-  fs.symlinkSync(ext, path.join(root, "link"));
-  fs.symlinkSync(path.join(root, "a-stock-data"), path.join(root, "alias"));
+  directoryLink(ext, path.join(root, "link"));
+  directoryLink(path.join(root, "a-stock-data"), path.join(root, "alias"));
   const alias = path.join(root, "alias", "SKILL.md");
   fs.mkdirSync(path.join(root, "filelink"));
-  fs.symlinkSync(path.join(ext, "file-target.md"), path.join(root, "filelink", "SKILL.md"));
-  fs.symlinkSync(path.join(base, "nope"), path.join(root, "dangling"));
-  fs.symlinkSync(path.dirname(prodSkill), path.join(root, "prod"));
-  fs.symlinkSync(path.dirname(repoDoc), path.join(root, "repodoc"));
+  tryFileLink(path.join(ext, "file-target.md"), path.join(root, "filelink", "SKILL.md"));
+  tryFileLink(path.join(base, "nope"), path.join(root, "dangling"));
+  directoryLink(path.dirname(prodSkill), path.join(root, "prod"));
+  directoryLink(path.dirname(repoDoc), path.join(root, "repodoc"));
   const repodocLink = path.join(root, "repodoc", "SKILL.md");
   const legacy = path.join(codexHome, "skills", "legacy-user-skill", "SKILL.md");
   mk(legacy);
@@ -76,7 +77,7 @@ test("scanForeignSkills:复刻 Codex Recursive 发现——目录深度 ≤ 6、
 test("scanForeignSkills:符号链接环路不死循环;不可读目录 → 抛错(不静默少禁),错误信息用 ~ 相对主目录", () => {
   const f = fixture();
   const root = path.join(f.home, ".agents", "skills");
-  fs.symlinkSync(root, path.join(root, "loop"));  // 指回根
+  directoryLink(root, path.join(root, "loop"));  // 指回根
   const got = listForeignSkillPaths({ codexHome: f.codexHome, homeDir: f.home });
   assert.ok(got.includes(f.a) && !got.some((p) => p.includes("/loop/")));
   if (process.platform !== "win32" && typeof process.getuid === "function" && process.getuid() !== 0) {
@@ -222,8 +223,12 @@ test("skillsIsolationStatus:结构化判定——恰好只有 path + enabled = f
 test("posixQuote / installCommandFor:空格、中文、引号、$、反引号路径都作为字面量;命令用绝对路径", () => {
   assert.equal(posixQuote("a b"), "'a b'");
   assert.equal(posixQuote("it's $HOME `x` 中文"), `'it'\\''s $HOME \`x\` 中文'`);
-  const cmd = installCommandFor("/r e/po", "/h/$x/codex-home", "/usr/bin/node");
-  assert.equal(cmd, `'/usr/bin/node' '/r e/po/orchestrator/src/skills_isolation.ts' --codex-home '/h/$x/codex-home'`);
+  const repo = path.join(path.parse(process.cwd()).root, "r e", "po");
+  const home = path.join(path.parse(process.cwd()).root, "h", "$x", "codex-home");
+  const node = path.join(path.parse(process.cwd()).root, "Program Files", "node.exe");
+  const cmd = installCommandFor(repo, home, node);
+  const q = process.platform === "win32" ? (s: string) => `'${s.replace(/'/g, "''")}'` : posixQuote;
+  assert.equal(cmd, `${process.platform === "win32" ? "& " : ""}${q(node)} ${q(path.join(repo, "orchestrator", "src", "skills_isolation.ts"))} --codex-home ${q(home)}`);
 });
 
 test("runInit:首装即写隔离块(doctor 首次运行前就能绿);再跑一次 action=exists", () => {

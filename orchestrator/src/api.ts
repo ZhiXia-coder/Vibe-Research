@@ -15,7 +15,8 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
-import { IMPORT_MAX_TOTAL_BYTES, ServiceError, chatSend, translateHeadlines, evidenceAlerts, guidedToolTurn, listTools, runTool, fetchEndpoint, ingestFiles, debateAdvance, debateStart, ledgerKinds, ledgerLabels, ledgerList, localAgents, productInfo, ledgerRemove, ledgerSnapshot, ledgerUpsert, pageQuery, getEvidence, getReport, knowledgeRecall, listEndpoints, listRuns, readRunFile, redact, reportDelete, reportDownload, reportUpload, reportsList, researchStatus, safePath, serviceContext, startCodexSubscriptionLogin, startResearch, thermoSeries, type ServiceContext } from "./service.ts";
+import { IMPORT_MAX_TOTAL_BYTES, ServiceError, chatSend, translateHeadlines, evidenceAlerts, guidedToolTurn, listTools, runTool, fetchEndpoint, ingestFiles, debateAdvance, debateStart, ledgerKinds, ledgerLabels, ledgerList, localAgents, productInfo, ledgerRemove, ledgerSnapshot, ledgerUpsert, pageQuery, getEvidence, getReport, knowledgeRecall, listEndpoints, listRuns, missionStatus, missions, readRunFile, redact, reportDelete, reportDownload, reportUpload, reportsList, researchStatus, safePath, serviceContext, startCodexSubscriptionLogin, startResearch, thermoSeries, type ServiceContext } from "./service.ts";
+import { metricsForRun, observabilityOverview, traceForRun } from "./observability.ts";
 import { REPORT_MAX_BYTES } from "./report_library.ts";
 import { NOFOLLOW_FLAG, restrictPrivateFile } from "./fsutil.ts";
 
@@ -268,6 +269,15 @@ export function createApiServer(ctx: ServiceContext, opts: { token: string; cook
       }
       if (req.method === "POST" && url.pathname === "/research") { const b = await readBody(req); return send(res, 202, startResearch(ctx, b as never)); }
       if (req.method === "GET" && url.pathname === "/runs") return send(res, 200, listRuns(ctx, q.limit ? Number(q.limit) : undefined));
+      if (req.method === "GET" && url.pathname === "/missions") return send(res, 200, missions(ctx, q.limit ? Number(q.limit) : undefined));
+      if (req.method === "GET" && parts[0] === "missions" && parts[1] && parts.length === 2) {
+        const mission = missionStatus(ctx, parts[1]);
+        return mission ? send(res, 200, mission) : send(res, 404, { error: "no_such_mission" });
+      }
+      // Agent 运行控制台：只暴露安全摘要，不回传 prompt、模型正文、完整命令输出或本机路径。
+      if (req.method === "GET" && url.pathname === "/observability/overview") {
+        return send(res, 200, observabilityOverview(ctx, q.limit ? Number(q.limit) : undefined));
+      }
       // 「昨天以来变了什么」:对齐同一对象最近两次研究。**不足两次会报 need_two_runs**,
       // 调用方据此区分"没变化"与"还没有可比较的第二次"——这两件事完全不同(见 service.evidenceAlerts)。
       if (req.method === "GET" && url.pathname === "/alerts") {
@@ -276,6 +286,8 @@ export function createApiServer(ctx: ServiceContext, opts: { token: string; cook
       if (req.method === "GET" && parts[0] === "runs" && parts[1] && parts[2]) {
         const id = parts[1];
         if (parts[2] === "status") return send(res, 200, researchStatus(ctx, id));
+        if (parts[2] === "metrics") return send(res, 200, metricsForRun(ctx, id));
+        if (parts[2] === "trace") return send(res, 200, traceForRun(ctx, id, q.limit ? Number(q.limit) : undefined));
         if (parts[2] === "report") return send(res, 200, getReport(ctx, id));
         if (parts[2] === "evidence") return send(res, 200, getEvidence(ctx, id, { field: q.field, source: q.source, q: q.q, limit: q.limit ? Number(q.limit) : undefined }));
         if (parts[2] === "manifest") { const t = readRunFile(ctx, id, "manifest.json"); return t === null ? send(res, 404, { error: "no such run" }) : send(res, 200, t); }
@@ -322,6 +334,8 @@ export function createApiServer(ctx: ServiceContext, opts: { token: string; cook
           res.setHeader("Connection", "close");
           return send(res, 413, { error: e.code, message: redact(e.message, 200) });
         }
+        if (e.code === "research_capacity") return send(res, 429, { error: e.code, message: redact(e.message, 200) });
+        if (e.code === "mission_exists") return send(res, 409, { error: e.code, message: redact(e.message, 200) });
         return send(res, 400, { error: e.code, message: redact(e.message, 200) });
       }
       console.error(`[api] internal error: ${redact(e instanceof Error ? e.stack ?? e.message : String(e), 600)}`);
