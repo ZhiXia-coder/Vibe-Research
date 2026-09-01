@@ -12,6 +12,7 @@ test("浏览器 UI 与 API 从同一个数据根读取 token", () => {
 
   fs.writeFileSync(path.join(repo, "vibe-research.config.json"), JSON.stringify({ paths: { data_root: "state" } }));
   assert.equal(apiTokenPath(repo, {}), path.join(repo, "state", "api.token"), "产品配置里的 data_root 没生效");
-  assert.equal(apiTokenPath(repo, { VRA_DATA_ROOT: "/private/vra-data" }), "/private/vra-data/api.token");
+  const privateData = path.join(path.parse(repo).root, "private", "vra-data");
+  assert.equal(apiTokenPath(repo, { VRA_DATA_ROOT: privateData }), path.join(privateData, "api.token"));
   assert.equal(apiTokenPath(repo, { VRA_DATA_ROOT: "user-data" }), path.join(repo, "user-data", "api.token"));
 });

@@ -9,6 +9,7 @@ import { cmpVersion, isPrerelease, parseCodexVersion, resolveBundledCodex, runDo
 import { assertDataRootInside, detectPython, gitignoreCovers, runInit } from "../src/init.ts";
 import { installProjectRootMarkers } from "../src/instructions_root.ts";
 import { installSkillsIsolation } from "../src/skills_isolation.ts";
+import { directoryLink, tryFileLink } from "./platform.ts";
 
 
 import "../src/finance/register.ts";   // 测试文件也是入口:插件要先注册
@@ -74,19 +75,20 @@ test("init:幂等建 .local 目录 + 配置骨架 + .gitignore;已有配置不�
   // 数据根逃出产品根 → 拒绝(词法 / 符号链接 / realpath 三种)
   const repo2 = tmpRepo(); fs.writeFileSync(path.join(repo2, "vibe-research.config.json"), JSON.stringify({ paths: { data_root: "../outside" } }));
   assert.throws(() => runInit({ repoRoot: repo2 }), /不在产品根/);
-  const repo3 = tmpRepo(); const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out-")); fs.symlinkSync(outside, path.join(repo3, ".local"));
+  const repo3 = tmpRepo(); const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out-")); directoryLink(outside, path.join(repo3, ".local"));
   assert.throws(() => runInit({ repoRoot: repo3 }), /符号链接|产品根之外/);
   assert.ok(!fs.existsSync(path.join(outside, "config.json")), "不得写到符号链接指向的仓库外目录");
-  const repo4 = tmpRepo(); fs.mkdirSync(path.join(repo4, "data")); fs.symlinkSync(outside, path.join(repo4, "data", "link"));
+  const repo4 = tmpRepo(); fs.mkdirSync(path.join(repo4, "data")); directoryLink(outside, path.join(repo4, "data", "link"));
   fs.writeFileSync(path.join(repo4, "vibe-research.config.json"), JSON.stringify({ paths: { data_root: "data/link/.local" } }));
   assert.throws(() => assertDataRootInside(repo4, path.join(repo4, "data", "link", ".local")), /产品根之外/, "祖先是符号链接也拒绝");
   // 悬空符号链接:.gitignore → 拒绝且不在仓库外创建文件;.local → 拒绝;子目录是(悬空)符号链接 → 拒绝
   const repo6 = tmpRepo(); const dangling = path.join(os.tmpdir(), `vra-dangling-${process.pid}`, "nope");
-  fs.symlinkSync(dangling, path.join(repo6, ".gitignore"));
-  assert.throws(() => runInit({ repoRoot: repo6 }), /符号链接/); assert.ok(!fs.existsSync(dangling));
-  const repo7 = tmpRepo(); fs.symlinkSync(dangling, path.join(repo7, ".local"));
+  if (tryFileLink(dangling, path.join(repo6, ".gitignore"))) {
+    assert.throws(() => runInit({ repoRoot: repo6 }), /符号链接/); assert.ok(!fs.existsSync(dangling));
+  }
+  const repo7 = tmpRepo(); directoryLink(dangling, path.join(repo7, ".local"));
   assert.throws(() => runInit({ repoRoot: repo7 }), /符号链接/); assert.ok(!fs.existsSync(dangling));
-  const repo8 = tmpRepo(); fs.mkdirSync(path.join(repo8, ".local")); fs.symlinkSync(dangling, path.join(repo8, ".local", "runs"));
+  const repo8 = tmpRepo(); fs.mkdirSync(path.join(repo8, ".local")); directoryLink(dangling, path.join(repo8, ".local", "runs"));
   assert.throws(() => runInit({ repoRoot: repo8 }), /不是目录/); assert.ok(!fs.existsSync(dangling));
   // --force 同秒两次:备份不覆盖
   const repo5 = tmpRepo(); runInit({ repoRoot: repo5 }); runInit({ repoRoot: repo5, force: true }); runInit({ repoRoot: repo5, force: true });
@@ -125,7 +127,7 @@ test("doctor:版本解析 / 比较;密钥扫描命中 sk-… / Bearer / 环境�
   assert.ok(isPrerelease("codex-cli 0.150.0-alpha.1")); assert.ok(!isPrerelease("codex-cli 0.149.0"));
   // 引擎定位与 SDK 一致:真实 node_modules 下能找到,且 bin/codex 旁有 codex-package.json
   const eng = resolveBundledCodex(REPO);
-  assert.ok(eng.path && /vendor\/[^/]+\/(bin|codex)\/codex$/.test(eng.path), eng.detail);
+  assert.ok(eng.path && /vendor\/[^/]+\/(bin|codex)\/codex(?:\.exe)?$/.test(eng.path.split(path.sep).join("/")), eng.detail);
   assert.equal(resolveBundledCodex(fs.mkdtempSync(path.join(os.tmpdir(), "vra-noeng-"))).path, null);
 });
 
@@ -202,18 +204,19 @@ test("doctor:真实仓库 + 假 exec → 全绿(除 api_token / net skip);引擎
   const rep = fs.readFileSync(rr.report!, "utf8");
   assert.ok(!rep.includes(repoR), "报告里不出现绝对产品根"); assert.ok(rep.includes("<repo>"));
   // 数据根是符号链接 → data_root_boundary fail,且不写报告 / 探针
-  const repoS = tmpRepo(); const out2 = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out2-")); fs.symlinkSync(out2, path.join(repoS, ".local"));
+  const repoS = tmpRepo(); const out2 = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out2-")); directoryLink(out2, path.join(repoS, ".local"));
   const rs = await runDoctor({ repoRoot: repoS, env: { PATH: "/usr/bin", HOME: FAKE_HOME }, exec: good, python: "/fake/python", writeReport: true });
   const rsb = Object.fromEntries(rs.checks.map((c) => [c.id, c]));
   assert.equal(rsb.data_root_boundary.status, "fail"); assert.equal(rsb.data_root.status, "skip"); assert.equal(rs.report, null); assert.equal(rs.exit_code, 3);
   assert.deepEqual(fs.readdirSync(out2), [], "符号链接指向的目录里不得有任何写入");
   // 数据根本身正常,但 .local/doctor 是指向仓库外的符号链接 → 报告不写(warn),探针叶子是符号链接 → data_root fail;仓库外仍空
   const repoD = tmpRepo(); const out3 = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out3-")); fs.mkdirSync(path.join(repoD, ".local"));
-  fs.symlinkSync(out3, path.join(repoD, ".local", "doctor"));
-  fs.symlinkSync(path.join(out3, "probe-target"), path.join(repoD, ".local", `.doctor-write-${process.pid}`));
+  directoryLink(out3, path.join(repoD, ".local", "doctor"));
+  const probeLinkCreated = tryFileLink(path.join(out3, "probe-target"), path.join(repoD, ".local", `.doctor-write-${process.pid}`));
   const rd = await runDoctor({ repoRoot: repoD, env: { PATH: "/usr/bin", HOME: FAKE_HOME }, exec: good, python: "/fake/python", writeReport: true });
   const rdb = Object.fromEntries(rd.checks.map((c) => [c.id, c]));
-  assert.equal(rd.report, null); assert.equal(rdb.report?.status, "warn"); assert.equal(rdb.data_root.status, "fail");
+  assert.equal(rd.report, null); assert.equal(rdb.report?.status, "warn");
+  if (probeLinkCreated) assert.equal(rdb.data_root.status, "fail");
   assert.deepEqual(fs.readdirSync(out3), [], "doctor/ 或探针是符号链接时仓库外不得有任何写入");
   assert.ok(rd.tally.warn >= 1 && rd.exit_code === 3, "报告落盘 warn 计入 tally");
   // 子进程不该拿到密钥:good exec 的 env 参数里没有 DEEPSEEK_API_KEY(login status 的 env 只含最小环境 + CODEX_HOME)

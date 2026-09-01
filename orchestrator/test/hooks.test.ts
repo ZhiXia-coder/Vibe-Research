@@ -45,7 +45,7 @@ test("installHooks:写 hooks.json + 在 config.toml 末尾登记 trusted_hash(�
   fs.writeFileSync(path.join(cfg.codexHome, "config.toml"), '[projects."/x"]\ntrust_level = "trusted"\n');
   const inst = installHooks(cfg, "/usr/local/bin/node");
   const hooksJson = JSON.parse(fs.readFileSync(inst.hooksJsonPath, "utf8"));
-  assert.ok(hooksJson.hooks.Stop[0].hooks[0].command.includes("orchestrator/hooks/stop.ts"));
+  assert.ok(hooksJson.hooks.Stop[0].hooks[0].command.includes(path.join("orchestrator", "hooks", "stop.ts")));
   assert.equal(hooksJson.hooks.PreToolUse[0].matcher, "^(Bash|apply_patch)$");
   const toml = fs.readFileSync(inst.configTomlPath, "utf8");
   assert.ok(toml.startsWith('[projects."/x"]'));

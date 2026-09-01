@@ -29,7 +29,7 @@ test("🔴 传输层自己带上用户配置 —— 不靠每个调用方记得�
   assert.ok(/import \{[^}]*readUserLlm[^}]*\} from "\.\/llmStore(?:\.ts)?"/.test(src), "backend.ts 必须自己去读用户配置");
   // 读配置集中在 requestLlm，chat 与标题翻译两条传输入口都必须调用它。
   // 只看整份文件会假绿：helper 留着、真正的请求入口绕开它照样能过。
-  const helper = /function requestLlm\([^)]*\)[^{]*\{([\s\S]*?)\n\}\n\nasync function call/.exec(src);
+  const helper = /function requestLlm\([^)]*\)[^{]*\{([\s\S]*?)\r?\n\}\r?\n\r?\nasync function call/.exec(src);
   assert.ok(helper, "没解析到 requestLlm 的实现，断言等于没做");
   const helperBody = helper[1]!;
   assert.ok(/readUserLlm\(\)/.test(helperBody), "传输层必须在调用方没给时去读用户配置");

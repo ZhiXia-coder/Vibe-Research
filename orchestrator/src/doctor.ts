@@ -139,7 +139,7 @@ export function scanSecrets(repoRoot: string, env: NodeJS.ProcessEnv): { hits: {
   for (const { p: f, inTest } of files) {
     let text: string;
     try { if (fs.statSync(f).size > SCAN_MAX_BYTES) continue; text = fs.readFileSync(f, "utf8"); } catch { continue; }
-    const rel = path.relative(repoRoot, f);
+    const rel = path.relative(repoRoot, f).split(path.sep).join("/");
     text.split("\n").forEach((l, i) => {
       for (const pat of SECRET_PATTERNS_STRICT) if (pat.re.test(l)) hits.push({ file: rel, line: i + 1, what: pat.name });
       if (inTest) return;

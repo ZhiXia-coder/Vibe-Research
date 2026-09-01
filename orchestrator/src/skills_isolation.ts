@@ -351,9 +351,14 @@ export function skillsIsolationStatus(tomlText: string, foreignPaths: string[]):
 /** POSIX 单引号转义(给 doctor 的修复命令用;Windows 未测) */
 export const posixQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/** PowerShell 单引号转义；引号包住可执行文件时还需要调用运算符 &。 */
+export const powershellQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
 /** 立即写入隔离块的命令行(绝对路径 + 单引号;与 init / 编排器同一实现) */
 export function installCommandFor(repoRoot: string, codexHome: string, nodeBin: string = process.execPath): string {
-  return `${posixQuote(nodeBin)} ${posixQuote(path.join(repoRoot, "orchestrator", "src", "skills_isolation.ts"))} --codex-home ${posixQuote(codexHome)}`;
+  const script = path.join(repoRoot, "orchestrator", "src", "skills_isolation.ts");
+  if (process.platform === "win32") return `& ${powershellQuote(nodeBin)} ${powershellQuote(script)} --codex-home ${powershellQuote(codexHome)}`;
+  return `${posixQuote(nodeBin)} ${posixQuote(script)} --codex-home ${posixQuote(codexHome)}`;
 }
 
 /** 用法:node orchestrator/src/skills_isolation.ts --codex-home <产品 CODEX_HOME> [--repo-root <产品根>] [--python <解释器>] [--json](立即写入隔离块;scripts/init 与每次研究运行也会自动做) */

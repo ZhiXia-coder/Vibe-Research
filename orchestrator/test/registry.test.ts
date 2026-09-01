@@ -42,11 +42,12 @@ test("full 计划:必需项不变,只增加可选端点;美股 / 港股端点不
 });
 
 test("fetchArgv:legacy 走脚本自身;其余走 fetch_endpoint.py;symbol_kind=none 不传 --symbol", () => {
-  const o = { scriptsDir: "/s", symbol: "300308", runDir: "/r" };
-  assert.deepEqual(fetchArgv({ id: "fetch_quote", module: "legacy", function: "fetch_quote.py", market: ["CN"] }, "fetch_quote", o), ["/s/fetch_quote.py", "--symbol", "300308", "--out-dir", "/r"]);
-  assert.deepEqual(fetchArgv(undefined, "fetch_quote", o), ["/s/fetch_quote.py", "--symbol", "300308", "--out-dir", "/r"]);
-  assert.deepEqual(fetchArgv({ id: "em_reports", module: "eastmoney", function: "eastmoney_reports", market: ["CN"], symbol_kind: "cn6" }, "em_reports", o), ["/s/fetch_endpoint.py", "--endpoint", "em_reports", "--out-dir", "/r", "--symbol", "300308"]);
-  assert.deepEqual(fetchArgv({ id: "em_hot_rank", module: "eastmoney", function: "em_hot_rank", market: ["CN"], symbol_kind: "none" }, "em_hot_rank", o), ["/s/fetch_endpoint.py", "--endpoint", "em_hot_rank", "--out-dir", "/r"]);
+  const scriptsDir = path.resolve("/s"), runDir = path.resolve("/r");
+  const o = { scriptsDir, symbol: "300308", runDir };
+  assert.deepEqual(fetchArgv({ id: "fetch_quote", module: "legacy", function: "fetch_quote.py", market: ["CN"] }, "fetch_quote", o), [path.join(scriptsDir, "fetch_quote.py"), "--symbol", "300308", "--out-dir", runDir]);
+  assert.deepEqual(fetchArgv(undefined, "fetch_quote", o), [path.join(scriptsDir, "fetch_quote.py"), "--symbol", "300308", "--out-dir", runDir]);
+  assert.deepEqual(fetchArgv({ id: "em_reports", module: "eastmoney", function: "eastmoney_reports", market: ["CN"], symbol_kind: "cn6" }, "em_reports", o), [path.join(scriptsDir, "fetch_endpoint.py"), "--endpoint", "em_reports", "--out-dir", runDir, "--symbol", "300308"]);
+  assert.deepEqual(fetchArgv({ id: "em_hot_rank", module: "eastmoney", function: "em_hot_rank", market: ["CN"], symbol_kind: "none" }, "em_hot_rank", o), [path.join(scriptsDir, "fetch_endpoint.py"), "--endpoint", "em_hot_rank", "--out-dir", runDir]);
 });
 
 test("makeConfig:默认 core(硬测试 / 旧行为);full 才接入注册表端点;无注册表的仓库回退常量", () => {

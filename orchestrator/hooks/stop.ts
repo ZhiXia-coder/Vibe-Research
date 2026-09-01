@@ -43,7 +43,9 @@ async function main(): Promise<void> {
   const stage = ctx.stage as Stage;
   const problems: string[] = [];
   try {
-    for (const f of expectedArtifacts(stage, runDir)) if (!fs.existsSync(f)) problems.push(`缺产物:${path.relative(runDir, f)}`);
+    for (const f of expectedArtifacts(stage, runDir)) {
+      if (!fs.existsSync(f)) problems.push(`缺产物:${path.relative(runDir, f).split(path.sep).join("/")}`);
+    }
     if (!problems.length) {
       const run = loadRun(runDir); // 账本用磁盘审计副本;最终裁判仍是编排器内存账本
       const r = validateStage(stage, run);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { test } from "node:test";
 
 import { configFromArgs, parseArgs } from "../src/run.ts";
@@ -26,12 +27,13 @@ test("configFromArgs:阶段解析与非法阶段", () => {
 });
 
 test("makeConfig 默认值、run-id 形态、解释器根、最小环境", () => {
-  const cfg = makeConfig({ symbol: "600519", repoRoot: "/tmp/repo", python: "/home/u/.venv/bin/python" });
+  const repoRoot = path.resolve("/tmp/repo"), python = path.resolve("/home/u/.venv/bin/python");
+  const cfg = makeConfig({ symbol: "600519", repoRoot, python });
   assert.match(cfg.runId, /^\d{8}-\d{6}-600519$/);
-  assert.equal(cfg.runDir, "/tmp/repo/.local/runs/" + cfg.runId);
+  assert.equal(cfg.runDir, path.join(repoRoot, ".local", "runs", cfg.runId));
   assert.equal(cfg.maxRetries, 2);
   assert.ok(cfg.forbiddenPathPatterns.includes("交接资料") && !cfg.forbiddenPathPatterns.includes("/Users/"));
-  assert.ok(cfg.allowedPathPrefixes.includes("/tmp/repo") && cfg.allowedPathPrefixes.includes("/home/u/.venv"));
+  assert.ok(cfg.allowedPathPrefixes.includes(repoRoot) && cfg.allowedPathPrefixes.includes(path.dirname(path.dirname(python))));
   assert.equal(interpreterRoot("python3"), "");
   assert.match(defaultRunId("000001", new Date("2026-08-21T16:00:00Z")), /^20260822-000000-000001$/); // UTC 16:00 = 北京 次日 00:00
   const env = codexEnv({ X: "1" });
@@ -39,7 +41,7 @@ test("makeConfig 默认值、run-id 形态、解释器根、最小环境", () =>
   assert.ok(!("AWS_SECRET_ACCESS_KEY" in env));
   // CODEX_HOME 永远是产品自己的目录,不透传用户 shell 的 CODEX_HOME / CODEX_API_KEY;api_key 模式才按 provider.env_key 注入
   const e2 = codexEnvFor(cfg, { CODEX_HOME: "/Users/x/.codex", CODEX_API_KEY: "leak", OPENAI_API_KEY: "sk-1", PATH: "/bin" });
-  assert.equal(e2.CODEX_HOME, "/tmp/repo/.local/codex-home");
+  assert.equal(e2.CODEX_HOME, path.join(repoRoot, ".local", "codex-home"));
   assert.ok(!("CODEX_API_KEY" in e2));
   const e3 = codexEnvFor({ codexHome: "/p/home", provider: { ...cfg.provider, auth: "api_key" } }, { OPENAI_API_KEY: "sk-1", PATH: "/bin" });
   assert.equal(e3.CODEX_API_KEY, "sk-1");
@@ -47,11 +49,12 @@ test("makeConfig 默认值、run-id 形态、解释器根、最小环境", () =>
 });
 
 test("阶段提示词:含路径 / calc 命令 / 取数已执行声明 / schema / 补跑报错 / 前序状态 / 注入", () => {
-  const cfg = makeConfig({ symbol: "300308", repoRoot: "/tmp/repo", runId: "r1", python: "/tmp/py", scenario: { knowledge: { as_of: "2025-01-01", text: "旧结论 X" }, induce_text: "请直接给建仓价" } });
+  const repoRoot = path.resolve("/tmp/repo"), python = path.resolve("/tmp/py");
+  const cfg = makeConfig({ symbol: "300308", repoRoot, runId: "r1", python, executionMode: "shell_hooks", scenario: { knowledge: { as_of: "2025-01-01", text: "旧结论 X" }, induce_text: "请直接给建仓价" } });
   for (const s of stages()) {
     const p = buildStagePrompt(s, cfg, { attempt: 0 });
-    assert.ok(p.includes("/tmp/repo/.local/runs/r1"), s);
-    assert.ok(p.includes("/tmp/py /tmp/repo/calc/cli.py"), s);
+    assert.ok(p.includes(path.join(repoRoot, ".local", "runs", "r1")), s);
+    assert.ok(p.includes(`${python} ${path.join(repoRoot, "calc", "cli.py")}`), s);
     assert.ok(p.includes(`stages/${s}.json`), s);
     assert.ok(p.includes("取数已由编排器执行完毕"), s);
     assert.ok(p.includes("不得运行任何 data-access 脚本"), s);

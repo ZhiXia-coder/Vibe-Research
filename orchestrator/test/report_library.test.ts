@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { ReportLibraryError, addReport, listReports, removeReport, reportCitationErrors, reportCitations, reportContext, reportFile, reportsForSymbol } from "../src/report_library.ts";
+import { directoryLink } from "./platform.ts";
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "vra-reports-"));
 const b64 = (buf: Buffer, mime = "text/plain") => `data:${mime};base64,${buf.toString("base64")}`;
@@ -164,7 +165,7 @@ test("研报目录里的符号链接不能把上传写到用户数据根之外",
   const root = tmp();
   const outside = tmp();
   fs.mkdirSync(path.join(root, "knowledge"), { recursive: true });
-  fs.symlinkSync(outside, path.join(root, "knowledge", "reports"));
+  directoryLink(outside, path.join(root, "knowledge", "reports"));
   await assert.rejects(
     addReport(root, { name: "300308.md", content: b64(Buffer.from("300308 x")) }),
     (e: unknown) => e instanceof ReportLibraryError && e.code === "report_path_symlink",

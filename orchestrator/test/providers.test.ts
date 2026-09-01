@@ -9,6 +9,7 @@ import { codexEnvFor, makeConfig } from "../src/config.ts";
 import { loadProductConfig } from "../src/productConfig.ts";
 import { assertAuth, codexProviderConfig, listProviderIds, loadProviderProfile, providerEnv, structuredOutputMode, validateProfile, withOutputSchema } from "../src/providers.ts";
 import { codexOptionsFor } from "../src/runner.ts";
+import { directoryLink } from "./platform.ts";
 
 
 import "../src/finance/register.ts";   // 测试文件也是入口:插件要先注册
@@ -178,12 +179,12 @@ test("providers:providers 目录是符号链接 / 解析到根之外 → 拒绝(
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "vra-plink-"));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-outside-"));
   fs.cpSync(path.join(REPO, "providers"), outside, { recursive: true });
-  fs.symlinkSync(outside, path.join(repo, "providers"));
+  directoryLink(outside, path.join(repo, "providers"));
   assert.throws(() => loadProviderProfile(repo, path.join(repo, ".local"), "deepseek"), /符号链接|根目录之外/);
   // 用户目录 .local/providers 同样受限
   const repo2 = fs.mkdtempSync(path.join(os.tmpdir(), "vra-plink2-"));
   fs.mkdirSync(path.join(repo2, ".local"), { recursive: true });
-  fs.symlinkSync(outside, path.join(repo2, ".local", "providers"));
+  directoryLink(outside, path.join(repo2, ".local", "providers"));
   assert.throws(() => loadProviderProfile(repo2, path.join(repo2, ".local"), "deepseek"), /符号链接|根目录之外/);
   // 正常目录照常
   fs.cpSync(path.join(REPO, "providers"), path.join(repo2, "providers"), { recursive: true });

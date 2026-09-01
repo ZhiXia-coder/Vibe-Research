@@ -61,9 +61,12 @@ if(a[0]==='login'){
     assert.equal(duplicate.state, "pending", "同一个产品 home 不能同时弹出两个登录流程");
     assert.equal(codexLoginProgress(codexHome)?.state, "pending");
 
-    for (let i = 0; i < 30 && !fs.existsSync(path.join(codexHome, "auth.ok")); i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+    // 全量回归会并行启动大量 Node / PowerShell 子进程；给 Windows 启动器足够调度时间，
+    // 否则测到的是机器负载而不是登录流程是否合并。
+    for (let i = 0; i < 200 && !fs.existsSync(path.join(codexHome, "auth.ok")); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
+    assert.ok(fs.existsSync(launchFile), "登录子进程应已启动并记录产品 CODEX_HOME");
     const launched = JSON.parse(fs.readFileSync(launchFile, "utf8")) as { home: string; args: string[] };
     assert.equal(launched.home, codexHome);
     assert.deepEqual(launched.args, ["login"]);

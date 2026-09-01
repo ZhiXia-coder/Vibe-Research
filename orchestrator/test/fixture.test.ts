@@ -9,6 +9,7 @@ import {
 } from "../src/fixture.ts";
 import { checkFixture, seedFixtureInto } from "../src/orchestrate.ts";
 import { manifestSchema, validateWith } from "../src/schemas.ts";
+import { directoryLink, fileLinkOrSkip } from "./platform.ts";
 
 
 import "../src/finance/register.ts";   // 测试文件也是入口:插件要先注册
@@ -156,21 +157,21 @@ test("checkFixture:标的 / 口径指纹(含 calc 版本)/ 数据日,任一不�
   assert.equal(fs.existsSync(path.join(run, "stages", "profile.json")), true);
 });
 
-test("🔴 符号链接:夹具内的链接文件与链接目录都要拒绝(词法校验挡不住)", () => {
+test("🔴 符号链接:夹具内的链接文件与链接目录都要拒绝(词法校验挡不住)", (t) => {
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "vra-out-"));
   fs.writeFileSync(path.join(outside, "secret.json"), '{"evidence":[{"id":"ev-secret000000"}]}');
 
   // 夹具里的文件是链接
   const { out } = mkFixture(mkRun());
   fs.rmSync(path.join(out, "fetch", "fetch_profile.json"));
-  fs.symlinkSync(path.join(outside, "secret.json"), path.join(out, "fetch", "fetch_profile.json"));
+  if (!fileLinkOrSkip(t, path.join(outside, "secret.json"), path.join(out, "fetch", "fetch_profile.json"))) return;
   assert.throws(() => verifyFixture(out), /符号链接/);
 
   // 播种目标目录是链接
   const { out: ok } = mkFixture(mkRun());
   const m = readFixture(ok);
   const run = fs.mkdtempSync(path.join(os.tmpdir(), "vra-seed-"));
-  fs.symlinkSync(outside, path.join(run, "fetch"));
+  directoryLink(outside, path.join(run, "fetch"));
   assert.throws(() => seedRunDir(ok, run, m), /符号链接/);
 });
 
