@@ -14,6 +14,7 @@ import { Research } from "@/pages/Research";
 import { MyReports } from "@/pages/MyReports";
 import { Notes } from "@/pages/Notes";
 import { Settings } from "@/pages/Settings";
+import { AgentOps } from "@/pages/AgentOps";
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
       { path: "/backtest", element: <Backtest /> },
       { path: "/watchlist", element: <Watchlist /> },
       { path: "/research", element: <Research /> },
+      { path: "/agent-ops", element: <AgentOps /> },
       { path: "/my-reports", element: <MyReports /> },
       { path: "/notes", element: <Notes /> },
       { path: "/settings", element: <Settings /> },

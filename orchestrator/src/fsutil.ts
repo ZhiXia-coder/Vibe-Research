@@ -38,8 +38,15 @@ exit 0
 `;
 
 function windowsAcl(script: string, file: string): { status: number | null; error?: Error } {
+  const env: NodeJS.ProcessEnv = { ...process.env, VRA_PRIVATE_FILE: path.resolve(file) };
+  // PowerShell 7 may prepend its module directories to PSModulePath. Passing that
+  // value explicitly into Windows PowerShell 5.1 can make it select an incompatible
+  // Microsoft.PowerShell.Security module, so let powershell.exe rebuild its native path.
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === "psmodulepath") delete env[key];
+  }
   const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
-    env: { ...process.env, VRA_PRIVATE_FILE: path.resolve(file) }, encoding: "utf8", windowsHide: true, timeout: 10_000,
+    env, encoding: "utf8", windowsHide: true, timeout: 10_000,
   });
   return { status: result.status, error: result.error };
 }
@@ -47,6 +54,7 @@ function windowsAcl(script: string, file: string): { status: number | null; erro
 /** Windows 的 mode 0600 不会改变 NTFS DACL；敏感文件必须显式断开继承并只授权当前 SID。 */
 export function restrictPrivateFile(file: string): void {
   if (process.platform !== "win32") { fs.chmodSync(file, 0o600); return; }
+  if (privateFilePermissions(file).secure) return;
   const result = windowsAcl(WINDOWS_PRIVATE_ACL, file);
   if (result.error || result.status !== 0) throw new Error(`无法收紧 Windows 文件权限(${result.error?.message ?? `exit ${result.status}`})`);
 }
