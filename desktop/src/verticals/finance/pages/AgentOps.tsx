@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, Bot, CheckCircle2, Clock3, GitBranch, RefreshC
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { ApiError, backend, type ObservabilityOverview, type RunMetrics, type RunTrace } from "@/lib/backend";
+import { ApiError, backend, type MissionRecord, type ObservabilityOverview, type RunMetrics, type RunTrace } from "@/lib/backend";
 import { useAiPage } from "../../../core/ai/pageContext";
 
 const STAGE_CN: Record<string, string> = {
@@ -11,7 +11,7 @@ const STAGE_CN: Record<string, string> = {
 };
 
 const STATUS_CN: Record<string, string> = {
-  complete: "完成", running: "进行中", failed: "失败", incomplete: "未跑完", pending: "待执行", skipped: "跳过",
+  complete: "完成", starting: "启动中", running: "进行中", failed: "失败", interrupted: "已中断", incomplete: "未跑完", pending: "待执行", skipped: "跳过", stale: "数据陈旧",
 };
 
 const fmtDuration = (ms: number | null) => {
@@ -37,6 +37,7 @@ export function AgentOps() {
   const [overview, setOverview] = useState<ObservabilityOverview | null>(null);
   const [active, setActive] = useState<RunMetrics | null>(null);
   const [trace, setTrace] = useState<RunTrace | null>(null);
+  const [missions, setMissions] = useState<MissionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -49,8 +50,9 @@ export function AgentOps() {
   const refresh = async () => {
     setLoading(true); setErr("");
     try {
-      const data = await backend.observability(50);
+      const [data, missionData] = await Promise.all([backend.observability(50), backend.missions(100)]);
       setOverview(data);
+      setMissions(missionData);
       const selected = active ? data.runs.find((run) => run.run_id === active.run_id) : data.runs[0];
       if (selected) await loadTrace(selected); else { setActive(null); setTrace(null); }
     } catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); }
@@ -89,14 +91,36 @@ export function AgentOps() {
       {err && <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div>}
 
       {overview && (
-        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
           <Stat label="运行" value={overview.totals.runs} />
+          <Stat label="活跃任务" value={missions.filter((mission) => mission.status === "starting" || mission.status === "running").length} />
           <Stat label="完成" value={overview.totals.complete} tone="good" />
           <Stat label="失败" value={overview.totals.failed} tone={overview.totals.failed ? "bad" : "default"} />
           <Stat label="工具调用" value={overview.totals.tools} />
           <Stat label="工具失败" value={overview.totals.tool_failures} tone={overview.totals.tool_failures ? "bad" : "default"} />
           <Stat label="自动重试" value={overview.totals.retries} />
         </div>
+      )}
+
+      {missions.length > 0 && (
+        <GlassCard className="mb-4">
+          <div className="mb-3 flex items-center gap-2"><Bot className="h-4 w-4 text-primary" /><h3 className="font-semibold">持久任务目录</h3><span className="text-xs text-muted-foreground">SQLite · 最近 {Math.min(missions.length, 12)} 条</span></div>
+          <div className="overflow-auto">
+            <table className="w-full min-w-[680px] text-left text-xs">
+              <thead className="text-muted-foreground"><tr><th className="pb-2 font-medium">Mission</th><th className="pb-2 font-medium">主体</th><th className="pb-2 font-medium">状态</th><th className="pb-2 font-medium">范围</th><th className="pb-2 font-medium">PID</th><th className="pb-2 font-medium">更新时间</th></tr></thead>
+              <tbody>
+                {missions.slice(0, 12).map((mission) => (
+                  <tr key={mission.run_id} className="border-t border-border/40">
+                    <td className="max-w-[260px] truncate py-2 pr-3 font-mono" title={mission.run_id}>{mission.run_id}</td>
+                    <td className="py-2 pr-3 font-mono">{mission.symbol}.{mission.market || "—"}</td>
+                    <td className={mission.status === "failed" || mission.status === "interrupted" ? "py-2 pr-3 text-destructive" : mission.status === "complete" ? "py-2 pr-3 text-primary" : "py-2 pr-3"}>{STATUS_CN[mission.status] ?? mission.status}</td>
+                    <td className="py-2 pr-3">{mission.endpoint_scope}</td><td className="py-2 pr-3 font-mono">{mission.pid ?? "—"}</td><td className="py-2 text-muted-foreground">{fmtTime(mission.updated_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </GlassCard>
       )}
 
       {!overview || overview.runs.length === 0 ? (

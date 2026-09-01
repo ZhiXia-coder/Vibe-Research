@@ -329,6 +329,7 @@ export const backend = {
   runMetrics: (id: string) => call<RunMetrics>(`/runs/${encodeURIComponent(id)}/metrics`),
   runTrace: (id: string, limit = 300) => call<RunTrace>(`/runs/${encodeURIComponent(id)}/trace?limit=${limit}`),
   observability: (limit = 50) => call<ObservabilityOverview>(`/observability/overview?limit=${limit}`),
+  missions: (limit = 100) => call<MissionRecord[]>(`/missions?limit=${limit}`),
 
   /**
    * 「昨天以来变了什么」：对齐同一标的最近两次研究。
@@ -533,6 +534,21 @@ export interface RunTrace { run_id: string; total: number; items: TraceEvent[] }
 export interface ObservabilityOverview {
   runs: RunMetrics[];
   totals: { runs: number; complete: number; failed: number; tools: number; tool_failures: number; retries: number };
+}
+
+export interface MissionRecord {
+  run_id: string;
+  symbol: string;
+  market: string;
+  status: string;
+  endpoint_scope: string;
+  knowledge: string;
+  pid: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  error: string | null;
 }
 
 /** 两次研究之间的一条差异。`kind` 分变了 / 新增 / 消失 —— 三者要分开显示，别糊成"有变化" */

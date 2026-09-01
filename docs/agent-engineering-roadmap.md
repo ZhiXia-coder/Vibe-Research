@@ -66,13 +66,23 @@ Mission Service ── PostgreSQL/SQLite（任务、步骤、审批、租户、�
 全链路旁路：Trace + Metrics + Cost + Eval + Human Approval
 ```
 
+### 已完成：M2.1 持久 Mission 目录与并发准入
+
+- 使用 Node 内置 SQLite 建立 `.local/runtime.sqlite`，保存任务状态、主体、范围、PID、时间与错误摘要。
+- 研究启动前通过 `BEGIN IMMEDIATE` 原子占用并发槽；`VRA_MAX_CONCURRENT_RESEARCH` 可配置 1–16，默认 2。
+- 重复 `run_id` 默认拒绝；运行中的任务即使传 `overwrite` 也不能覆盖。
+- API 重启后按终态 Manifest 与 PID 对账；已退出且没有终态 Manifest 的任务标为 `interrupted` 并释放容量。
+- 新增 `GET /missions` 与 `GET /missions/:id`；Agent 运行控制台展示持久任务目录和活跃任务数。
+- 数据库负责可查询状态，Manifest 与 `events.jsonl` 继续作为结果和 Trace 真源，避免双重真源。
+
 ## 5. 后续实施顺序
 
 ### M2：持久任务中心与并发治理
 
-- 引入 SQLite（本机版）并保留迁移到 PostgreSQL 的 Repository 接口。
+- 已引入 SQLite（本机版）；下一步抽出 Repository 接口，为迁移到 PostgreSQL 做准备。
 - 建立 `missions`、`mission_steps`、`attempts`、`approvals`、`audit_logs` 表。
-- API 不再直接 detached spawn；改为持久队列 + Worker。
+- `missions` 已完成；`mission_steps`、`attempts`、`approvals`、`audit_logs` 待补。
+- 当前已做并发拒绝；下一步将直接 detached spawn 改为持久队列 + Worker。
 - 支持幂等键、并发上限、取消、超时、进程退出回收和服务重启后的任务对账。
 - 保留 `events.jsonl` 作为不可变审计账本，数据库只保存可查询索引和当前状态。
 

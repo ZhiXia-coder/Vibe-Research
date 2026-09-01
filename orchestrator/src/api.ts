@@ -15,7 +15,7 @@ import path from "node:path";
 
 import crypto from "node:crypto";
 
-import { IMPORT_MAX_TOTAL_BYTES, ServiceError, chatSend, translateHeadlines, evidenceAlerts, guidedToolTurn, listTools, runTool, fetchEndpoint, ingestFiles, debateAdvance, debateStart, ledgerKinds, ledgerLabels, ledgerList, localAgents, productInfo, ledgerRemove, ledgerSnapshot, ledgerUpsert, pageQuery, getEvidence, getReport, knowledgeRecall, listEndpoints, listRuns, readRunFile, redact, reportDelete, reportDownload, reportUpload, reportsList, researchStatus, safePath, serviceContext, startCodexSubscriptionLogin, startResearch, thermoSeries, type ServiceContext } from "./service.ts";
+import { IMPORT_MAX_TOTAL_BYTES, ServiceError, chatSend, translateHeadlines, evidenceAlerts, guidedToolTurn, listTools, runTool, fetchEndpoint, ingestFiles, debateAdvance, debateStart, ledgerKinds, ledgerLabels, ledgerList, localAgents, productInfo, ledgerRemove, ledgerSnapshot, ledgerUpsert, pageQuery, getEvidence, getReport, knowledgeRecall, listEndpoints, listRuns, missionStatus, missions, readRunFile, redact, reportDelete, reportDownload, reportUpload, reportsList, researchStatus, safePath, serviceContext, startCodexSubscriptionLogin, startResearch, thermoSeries, type ServiceContext } from "./service.ts";
 import { metricsForRun, observabilityOverview, traceForRun } from "./observability.ts";
 import { REPORT_MAX_BYTES } from "./report_library.ts";
 import { NOFOLLOW_FLAG, restrictPrivateFile } from "./fsutil.ts";
@@ -269,6 +269,11 @@ export function createApiServer(ctx: ServiceContext, opts: { token: string; cook
       }
       if (req.method === "POST" && url.pathname === "/research") { const b = await readBody(req); return send(res, 202, startResearch(ctx, b as never)); }
       if (req.method === "GET" && url.pathname === "/runs") return send(res, 200, listRuns(ctx, q.limit ? Number(q.limit) : undefined));
+      if (req.method === "GET" && url.pathname === "/missions") return send(res, 200, missions(ctx, q.limit ? Number(q.limit) : undefined));
+      if (req.method === "GET" && parts[0] === "missions" && parts[1] && parts.length === 2) {
+        const mission = missionStatus(ctx, parts[1]);
+        return mission ? send(res, 200, mission) : send(res, 404, { error: "no_such_mission" });
+      }
       // Agent 运行控制台：只暴露安全摘要，不回传 prompt、模型正文、完整命令输出或本机路径。
       if (req.method === "GET" && url.pathname === "/observability/overview") {
         return send(res, 200, observabilityOverview(ctx, q.limit ? Number(q.limit) : undefined));
@@ -329,6 +334,8 @@ export function createApiServer(ctx: ServiceContext, opts: { token: string; cook
           res.setHeader("Connection", "close");
           return send(res, 413, { error: e.code, message: redact(e.message, 200) });
         }
+        if (e.code === "research_capacity") return send(res, 429, { error: e.code, message: redact(e.message, 200) });
+        if (e.code === "mission_exists") return send(res, 409, { error: e.code, message: redact(e.message, 200) });
         return send(res, 400, { error: e.code, message: redact(e.message, 200) });
       }
       console.error(`[api] internal error: ${redact(e instanceof Error ? e.stack ?? e.message : String(e), 600)}`);
